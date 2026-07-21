@@ -15,24 +15,28 @@
 # specific language governing permissions and limitations
 # under the License.
 
+require "arrow/lazy-method-loader"
+
 module ArrowFlight
   class Loader < GObjectIntrospection::Loader
+    include Arrow::LazyMethodLoader
+
     class << self
       def load
+        install_const_missing(ArrowFlight)
         super("ArrowFlight", ArrowFlight)
+      end
+
+      def run_deferred_post_load
+        new(ArrowFlight).send(:require_libraries)
       end
     end
 
     private
-    def post_load(repository, namespace)
-      require_libraries
-    end
-
     def require_libraries
       require "arrow-flight/call-options"
       require "arrow-flight/client"
       require "arrow-flight/client-options"
-      require "arrow-flight/criteria"
       require "arrow-flight/location"
       require "arrow-flight/record-batch-reader"
       require "arrow-flight/server-call-context"

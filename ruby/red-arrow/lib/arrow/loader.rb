@@ -16,24 +16,39 @@
 # under the License.
 
 require_relative "block-closable"
+require_relative "lazy-method-loader"
 
 module Arrow
   class Loader < GObjectIntrospection::Loader
+    include LazyMethodLoader
+
     class << self
       def load
+        install_const_missing(Arrow)
         super("Arrow", Arrow)
+      end
+
+      # Deferred post_load — runs once after ALL classes' methods are loaded
+      # (called by finalize). libraries.rb has ~83 alias_method calls that
+      # reference GI methods at class-body level, so require_libraries must
+      # run after methods are loaded. arrow.so needs Date (loaded by libraries).
+      def run_deferred_post_load
+        loader = new(Arrow)
+        loader.send(:require_libraries)
+        loader.send(:require_extension_library)
+        loader.send(:gc_guard)
+        start_callback_dispatch_thread
+        Arrow.compute_initialize
+      end
+
+      # Per-class hook after methods load — BlockClosable adds `open` class
+      # method to classes that define `close`.
+      def post_lazy_load(klass)
+        klass.extend(BlockClosable) if klass.method_defined?(:close)
       end
     end
 
     private
-    def post_load(repository, namespace)
-      require_libraries
-      require_extension_library
-      gc_guard
-      self.class.start_callback_dispatch_thread
-      @base_module.compute_initialize
-    end
-
     def require_libraries
       require_relative "libraries"
     end
@@ -70,15 +85,6 @@ module Arrow
         "StreamListenerRaw"
       else
         super
-      end
-    end
-
-    def load_object_info(info)
-      super
-
-      klass = @base_module.const_get(rubyish_class_name(info))
-      if klass.method_defined?(:close)
-        klass.extend(BlockClosable)
       end
     end
 
